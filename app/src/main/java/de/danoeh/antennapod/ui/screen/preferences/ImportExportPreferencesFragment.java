@@ -36,6 +36,7 @@ import de.danoeh.antennapod.storage.importexport.DatabaseExporter;
 import de.danoeh.antennapod.storage.importexport.FavoritesWriter;
 import de.danoeh.antennapod.storage.importexport.HtmlWriter;
 import de.danoeh.antennapod.storage.importexport.OpmlWriter;
+import de.danoeh.antennapod.storage.importexport.SettingsExporter;
 import de.danoeh.antennapod.storage.preferences.UserPreferences;
 import de.danoeh.antennapod.ui.preferences.screen.AnimatedPreferenceFragment;
 import io.reactivex.rxjava3.core.Completable;
@@ -47,6 +48,7 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.nio.charset.Charset;
@@ -64,6 +66,10 @@ public class ImportExportPreferencesFragment extends AnimatedPreferenceFragment 
     private static final String PREF_DATABASE_EXPORT = "prefDatabaseExport";
     private static final String PREF_AUTOMATIC_DATABASE_EXPORT = "prefAutomaticDatabaseExport";
     private static final String PREF_FAVORITE_EXPORT = "prefFavoritesExport";
+    private static final String PREF_SETTINGS_EXPORT = "prefSettingsExport";
+    private static final String PREF_SETTINGS_IMPORT = "prefSettingsImport";
+    private static final String SETTINGS_EXPORT_FILENAME = "AntennaPodSettings-%s.json";
+    private static final String CONTENT_TYPE_JSON = "application/json";
     private static final String DEFAULT_OPML_OUTPUT_NAME = "antennapod-feeds-%s.opml";
     private static final String CONTENT_TYPE_OPML = "text/x-opml";
     private static final String DEFAULT_HTML_OUTPUT_NAME = "antennapod-feeds-%s.html";
@@ -94,6 +100,11 @@ public class ImportExportPreferencesFragment extends AnimatedPreferenceFragment 
             });
     private final ActivityResultLauncher<Uri> automaticBackupLauncher =
             registerForActivityResult(new PickWritableFolder(), this::setupAutomaticBackup);
+    private final ActivityResultLauncher<String> exportSettingsLauncher =
+            registerForActivityResult(new ActivityResultContracts.CreateDocument(CONTENT_TYPE_JSON),
+                    this::exportSettingsResult);
+    private final ActivityResultLauncher<String[]> importSettingsLauncher =
+            registerForActivityResult(new ActivityResultContracts.OpenDocument(), this::importSettingsResult);
 
     private Disposable disposable;
     private ProgressDialog progressDialog;
@@ -181,6 +192,73 @@ public class ImportExportPreferencesFragment extends AnimatedPreferenceFragment 
                     openExportPathPicker(Export.FAVORITES, chooseFavoritesExportPathLauncher);
                     return true;
                 });
+        findPreference(PREF_SETTINGS_EXPORT).setOnPreferenceClickListener(
+                preference -> {
+                    try {
+                        exportSettingsLauncher.launch(dateStampFilename(SETTINGS_EXPORT_FILENAME));
+                    } catch (ActivityNotFoundException e) {
+                        Snackbar.make(getView(), R.string.unable_to_start_system_file_manager, Snackbar.LENGTH_LONG)
+                                .show();
+                    }
+                    return true;
+                });
+        findPreference(PREF_SETTINGS_IMPORT).setOnPreferenceClickListener(
+                preference -> {
+                    importSettings();
+                    return true;
+                });
+    }
+
+    private void importSettings() {
+        new MaterialAlertDialogBuilder(getActivity())
+                .setTitle(R.string.settings_import_label)
+                .setMessage(R.string.settings_import_warning)
+                .setNegativeButton(R.string.no, null)
+                .setPositiveButton(R.string.confirm_label, (dialog, which) -> {
+                    try {
+                        importSettingsLauncher.launch(new String[] {"*/*"});
+                    } catch (ActivityNotFoundException e) {
+                        Snackbar.make(getView(), R.string.unable_to_start_system_file_manager, Snackbar.LENGTH_LONG)
+                                .show();
+                    }
+                })
+                .show();
+    }
+
+    private void exportSettingsResult(final Uri uri) {
+        if (uri == null) {
+            return;
+        }
+        progressDialog.show();
+        disposable = Completable.fromAction(() -> {
+            try (OutputStream outputStream = getContext().getContentResolver().openOutputStream(uri, "wt")) {
+                SettingsExporter.exportToStream(getContext(), outputStream);
+            }
+        })
+                .subscribeOn(Schedulers.computation())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(() -> {
+                    showExportSuccessSnackbar(uri, CONTENT_TYPE_JSON);
+                    progressDialog.dismiss();
+                }, this::showExportErrorDialog);
+    }
+
+    private void importSettingsResult(final Uri uri) {
+        if (uri == null) {
+            return;
+        }
+        progressDialog.show();
+        disposable = Completable.fromAction(() -> {
+            try (InputStream inputStream = getContext().getContentResolver().openInputStream(uri)) {
+                SettingsExporter.importFromStream(getContext(), inputStream);
+            }
+        })
+                .subscribeOn(Schedulers.computation())
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe(() -> {
+                    showDatabaseImportSuccessDialog();
+                    progressDialog.dismiss();
+                }, this::showImportErrorDialog);
     }
 
     private String dateStampFilename(String fname) {
