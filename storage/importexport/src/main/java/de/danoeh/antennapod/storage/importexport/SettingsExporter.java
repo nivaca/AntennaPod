@@ -31,7 +31,7 @@ public class SettingsExporter {
             "SwipeActionsPrefs", "StatisticsActivityPrefs", "NavDrawerPrefs", "PrefAllEpisodesFragment",
             "PrefNewEpisodesFragment", "ShareDialog");
     private static final Set<String> EXCLUDED_KEYS = new HashSet<>(Arrays.asList("prefDataFolder",
-            "prefAutomaticExportFolder", "prefProxyUser", "prefProxyPassword"));
+            "prefAutomaticExportFolder", "prefProxyUser", "prefProxyPassword", "PendingTimerValue"));
     private static final String EXCLUDED_PREFIX = "de.danoeh.antennapod.preferences.";
 
     private SettingsExporter() {
